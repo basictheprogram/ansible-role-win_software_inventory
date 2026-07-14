@@ -36,7 +36,7 @@ for why NetBox was ruled out).
 
 | Variable | Default | Description |
 |---|---|---|
-| `win_software_inventory_output_dir` | `/opt/ansible-inventory/win-software` | Path on the control node for the git working copy. Cloned automatically if absent. |
+| `win_software_inventory_output_dir` | `/opt/ansible-inventory/win-software` | Path on the control node where JSON files are written directly (cloned automatically as the git working copy if `win_software_inventory_git_commit` is true; created as a plain directory otherwise). No subfolder — whatever path you set is exactly where files land. |
 | `win_software_inventory_git_repo` | `""` | Git URL to clone/pull/push. Required (non-empty) when `win_software_inventory_git_commit` is true. |
 | `win_software_inventory_git_branch` | `main` | Branch checked out, committed to, and pushed. |
 | `win_software_inventory_git_commit` | `true` | Perform git clone/pull/commit/push. Set `false` to only write local files. |
@@ -55,7 +55,8 @@ These are loaded automatically and should not be overridden in playbooks.
 ## Collected Data
 
 Each host produces one sorted JSON file, named `<inventory_hostname>.json`,
-under `{{ win_software_inventory_output_dir }}/inventory/`:
+written directly to `{{ win_software_inventory_output_dir }}` (no
+`inventory/` subfolder):
 
 ```json
 [
@@ -121,7 +122,7 @@ MSI reconfiguration as a side effect.
 4. **Parse, dedupe, sort** — parse the JSON result, dedupe exact duplicates
    (the same entry appearing identically in more than one hive), sort by name.
 5. **Write JSON** — `ansible.builtin.copy` with `content: … | to_nice_json`
-   to `{{ win_software_inventory_output_dir }}/inventory/{{ inventory_hostname }}.json`
+   to `{{ win_software_inventory_output_dir }}/{{ inventory_hostname }}.json`
    (`delegate_to: localhost`).
 6. **Commit + push** — exactly once per play run, after every host's file
    is written (`run_once`, `delegate_to: localhost`): `git add -A`, commit

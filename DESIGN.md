@@ -148,12 +148,17 @@ Included first, before any host interaction. Asserts:
    entries (covers the same package appearing identically in multiple
    hives), sort by name so unrelated reordering doesn't show up as diff
    noise on unrelated runs.
-5. **Ensure the host's inventory subdirectory exists** in the git working
-   copy (`delegate_to: localhost`).
+5. **Ensure the output directory exists** in the git working copy
+   (`delegate_to: localhost`) — needed unconditionally, not just when
+   `win_software_inventory_git_commit` is true, since the directory may not
+   exist yet if git sync (step 2) was skipped.
 6. **Write the JSON file** — `ansible.builtin.copy` with
-   `content: "{{ win_software_inventory_packages | to_nice_json }}"`, to
-   `{{ win_software_inventory_output_dir }}/inventory/{{ inventory_hostname }}.json`
-   (`delegate_to: localhost`).
+   `content: "{{ win_software_inventory_packages | to_nice_json }}"`, directly
+   to `{{ win_software_inventory_output_dir }}/{{ inventory_hostname }}.json`
+   (`delegate_to: localhost`) — no `inventory/` subfolder; whatever path
+   `win_software_inventory_output_dir` is set to is exactly where the file
+   lands. (Also matches `win_hw_inventory`'s convention, which has no
+   subfolder either.)
 7. **Commit and push** (`run_once: true`, `delegate_to: localhost`, only when
    `win_software_inventory_git_commit` is true) — `git add -A`, then commit
    only if there are staged changes (`git diff --cached --quiet`, `changed_when`
@@ -232,10 +237,12 @@ win_software_inventory_registry_paths:
 
 ## Output Format
 
-One JSON file per host, named `<inventory_hostname>.json`, written to
-`{{ win_software_inventory_output_dir }}/inventory/`. Sorted by package
-name so that a single new/removed/updated package produces a minimal,
-readable diff in git history.
+One JSON file per host, named `<inventory_hostname>.json`, written directly
+to `{{ win_software_inventory_output_dir }}` — no `inventory/` subfolder (an
+earlier draft had one; dropped for a simpler mental model — whatever path you
+set is exactly where the files land — and to match `win_hw_inventory`'s
+convention). Sorted by package name so that a single new/removed/updated
+package produces a minimal, readable diff in git history.
 
 ```json
 [
@@ -297,6 +304,16 @@ the new decision here if one is made.
   written. This was chosen specifically to avoid concurrent
   `git push` races when the role targets many hosts in one play — a naive
   per-host commit/push was considered and rejected.
+* **No `inventory/` subfolder — files write directly to
+  `win_software_inventory_output_dir`.** An earlier draft treated
+  `win_software_inventory_output_dir` as the git working-copy *root* and
+  wrote per-host files under an `inventory/` subfolder inside it. That
+  surprised a real user: setting
+  `win_software_inventory_output_dir: "{{ playbook_dir }}/reports/software"`
+  in `host_vars` produced files at `.../reports/software/inventory/<host>.json`,
+  not the `.../reports/software/<host>.json` the variable name implied.
+  Reversed so whatever path you set is exactly where files land — also
+  now matches `win_hw_inventory`'s convention (no subfolder there either).
 * **Registry over WMI `Win32_Product`.** `Win32_Product` enumerates via MSI
   reconfiguration as a side effect (slow, and can trigger repair actions).
   The registry Uninstall keys are the standard low-risk source and match
