@@ -1,0 +1,51 @@
+---
+argument_specs:
+  main:
+    short_description: "Collect installed Windows software inventory into git"
+    description: >
+      Queries the registry Uninstall keys on Windows hosts to collect the
+      name, version, publisher, and install date of installed software.
+      Writes one sorted JSON file per host into a git working copy on the
+      control node, then commits and pushes once per play run.
+    options:
+      win_software_inventory_output_dir:
+        type: str
+        required: false
+        default: "/opt/ansible-inventory/win-software"
+        description: >
+          Absolute path on the Ansible control node where the git working
+          copy lives. Created via clone if it does not already exist.
+          Per-host JSON files are written under <this>/inventory/.
+
+      win_software_inventory_git_repo:
+        type: str
+        required: false
+        default: ""
+        description: >
+          Git URL (SSH or HTTPS) of the repository to clone/pull/push.
+          Required (non-empty) whenever win_software_inventory_git_commit is
+          true; preflight fails otherwise.
+
+      win_software_inventory_git_branch:
+        type: str
+        required: false
+        default: "main"
+        description: >
+          Branch to check out, commit to, and push.
+
+      win_software_inventory_git_commit:
+        type: bool
+        required: false
+        default: true
+        description: >
+          When true, the role clones/pulls the git repo, writes each host's
+          JSON file into the working copy, and performs one commit+push per
+          play run. Set to false to only write local files without any git
+          operations (useful for dry-run or testing).
+
+      win_software_inventory_git_commit_message:
+        type: str
+        required: false
+        default: "Update Windows software inventory ({{ now(utc=true, fmt='%Y-%m-%d %H:%M') }} UTC)"
+        description: >
+          Commit message used for the single per-run commit.

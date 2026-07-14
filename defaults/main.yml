@@ -1,0 +1,22 @@
+---
+# Absolute path on the Ansible control node where the git working copy of
+# the inventory repo lives. Cloned automatically if it does not exist.
+win_software_inventory_output_dir: "/opt/ansible-inventory/win-software"
+
+# Git URL (SSH or HTTPS) of the repository to clone/pull/push. Required
+# (non-empty) whenever win_software_inventory_git_commit is true — preflight
+# fails otherwise. No default URL is provided; there is no sensible one.
+win_software_inventory_git_repo: ""
+
+# Branch to check out, commit to, and push.
+win_software_inventory_git_branch: "main"
+
+# When true, the role clones/pulls win_software_inventory_git_repo, writes
+# each host's JSON file into the working copy, and performs exactly one
+# commit+push per play run (after every host has written its file — see
+# DESIGN.md's "Why run_once is safe" section). Set to false to only write
+# local files with no git operations at all (dry-run / testing).
+win_software_inventory_git_commit: true
+
+# Commit message used for the single per-run commit.
+win_software_inventory_git_commit_message: "Update Windows software inventory ({{ now(utc=true, fmt='%Y-%m-%d %H:%M') }} UTC)"

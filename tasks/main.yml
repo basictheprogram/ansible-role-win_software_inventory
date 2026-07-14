@@ -1,0 +1,219 @@
+---
+- name: Run preflight assertions
+  ansible.builtin.include_tasks: preflight.yml
+  tags: win_software_inventory
+
+# ---------------------------------------------------------------------------
+# Sync the git working copy (once per play, before any host writes a file)
+# ---------------------------------------------------------------------------
+
+- name: Ensure git working copy is present and up to date
+  ansible.builtin.git:
+    repo: "{{ win_software_inventory_git_repo }}"
+    dest: "{{ win_software_inventory_output_dir }}"
+    version: "{{ win_software_inventory_git_branch }}"
+    update: true
+  delegate_to: localhost
+  run_once: true
+  when: win_software_inventory_git_commit | bool
+  tags: win_software_inventory
+
+- name: Ensure inventory subdirectory exists in the git working copy
+  ansible.builtin.file:
+    path: "{{ win_software_inventory_output_dir }}/inventory"
+    state: directory
+    mode: "0750"
+  delegate_to: localhost
+  run_once: true
+  tags: win_software_inventory
+
+# ---------------------------------------------------------------------------
+# Query installed software from the registry Uninstall keys, with a
+# Chocolatey-derived install_date fallback for entries the registry doesn't
+# date-stamp. changed_when: false — read-only.
+#
+# All three registry hives, the Chocolatey lookup, and the fallback matching
+# are done in one PowerShell script (not three separate win_shell tasks plus
+# an Ansible-side merge) deliberately: fuzzy name-matching against Chocolatey
+# package IDs needs real string manipulation, which PowerShell does far more
+# naturally than Jinja2 (see the earlier field-renaming note this replaces —
+# Jinja2 still has no list/dict-comprehension syntax). One WinRM round trip
+# per host instead of three, too.
+#
+# install_date fallback order, each entry tagged with install_date_source so
+# a heuristic guess is never mistaken for authoritative registry data:
+#   1. registry InstallDate value, when present -> source "registry"
+#   2. Chocolatey package's .nupkg LastWriteTime, when a fuzzy name match is
+#      found and Chocolatey is present on this host -> source "chocolatey"
+#   3. blank -> source ""
+# ---------------------------------------------------------------------------
+
+- name: Query installed software (registry + Chocolatey install-date fallback)
+  ansible.windows.win_shell: |
+    # Passed as a single JSON expression rather than a Jinja for-loop block
+    # building a PowerShell array literal: ansible-lint's static parser
+    # shell-quote-balances free-form win_shell/command strings, and a Jinja
+    # control-flow block mixed with quotes inside that string reliably trips
+    # its parser (parser-error about an unbalanced jinja2 block or quotes)
+    # even though the rendered PowerShell itself is valid. A single inline
+    # expression avoids the problem entirely. (Also: the whole win_shell
+    # string is itself run through Jinja templating, so literal Jinja
+    # delimiter characters must never appear in a comment here either —
+    # that was the actual runtime failure this comment replaced, caught the
+    # hard way against a real host after passing ansible-lint clean.)
+    $regPaths = '{{ win_software_inventory_registry_paths | to_json }}' | ConvertFrom-Json
+
+    # Chocolatey package -> install-date lookup. Only populated when
+    # win_software_inventory_chocolatey_lib_path exists on this host — most
+    # workstations are expected to have Chocolatey; most servers won't.
+    # Chocolatey has no explicit install-date field, so each package's
+    # .nupkg file LastWriteTime is used as a proxy for "when this version
+    # was installed."
+    $chocoLibPath = '{{ win_software_inventory_chocolatey_lib_path }}'
+    $chocoPackages = @{}
+    if (Test-Path $chocoLibPath) {
+      Get-ChildItem -Path $chocoLibPath -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $nupkg = Get-ChildItem -Path $_.FullName -Filter '*.nupkg' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($nupkg) {
+          $chocoPackages[$_.Name] = $nupkg.LastWriteTime.ToString('yyyyMMdd')
+        }
+      }
+    }
+
+    # Chocolatey package IDs (e.g. "anita-terminal") rarely match a registry
+    # DisplayName exactly (e.g. "AniTa Terminal"). Normalize both sides
+    # (lowercase, strip non-alphanumerics) and match on substring
+    # containment either direction — accepts occasional missed matches in
+    # exchange for not attaching the wrong package's date to an entry.
+    function Find-ChocoInstallDate {
+      param([string]$DisplayName)
+      $normalized = ($DisplayName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+      foreach ($chocoId in $chocoPackages.Keys) {
+        $normalizedId = ($chocoId -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+        if ($normalized -like "*$normalizedId*" -or $normalizedId -like "*$normalized*") {
+          return $chocoPackages[$chocoId]
+        }
+      }
+      return $null
+    }
+
+    $entries = @()
+    foreach ($regPath in $regPaths) {
+      $entries += Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName } |
+        ForEach-Object {
+          $installDate = $_.InstallDate
+          $installDateSource = 'registry'
+          if (-not $installDate) {
+            $chocoDate = Find-ChocoInstallDate -DisplayName $_.DisplayName
+            if ($chocoDate) {
+              $installDate = $chocoDate
+              $installDateSource = 'chocolatey'
+            } else {
+              $installDate = ''
+              $installDateSource = ''
+            }
+          }
+          [PSCustomObject]@{
+            name                = $_.DisplayName
+            version             = $(if ($_.DisplayVersion) { $_.DisplayVersion } else { '' })
+            publisher           = $(if ($_.Publisher) { $_.Publisher } else { '' })
+            install_date        = $installDate
+            install_date_source = $installDateSource
+          }
+        }
+    }
+
+    # -InputObject (not a pipeline) is deliberate: piping an array into
+    # ConvertTo-Json unrolls it, so a host with exactly one matching entry
+    # would serialize as a bare object instead of a one-element array,
+    # breaking the parse step below. -InputObject preserves array-ness
+    # for 0, 1, or many entries.
+    ConvertTo-Json -InputObject $entries -Depth 3 -Compress
+  args:
+    executable: powershell
+  register: win_software_inventory_registry_query
+  changed_when: false
+  tags: win_software_inventory
+
+- name: Parse registry query results
+  ansible.builtin.set_fact:
+    win_software_inventory_raw_entries: "{{ win_software_inventory_registry_query.stdout | trim | from_json }}"
+  tags: win_software_inventory
+
+- name: Dedupe and sort the software inventory list by name
+  ansible.builtin.set_fact:
+    win_software_inventory_packages: "{{ win_software_inventory_raw_entries | unique | sort(attribute='name') }}"
+  tags: win_software_inventory
+
+# ---------------------------------------------------------------------------
+# Write this host's JSON file to the control node
+# ---------------------------------------------------------------------------
+
+- name: Write inventory JSON file for this host
+  ansible.builtin.copy:
+    content: "{{ win_software_inventory_packages | to_nice_json }}\n"
+    dest: "{{ win_software_inventory_output_dir }}/inventory/{{ inventory_hostname }}.json"
+    mode: "0640"
+  delegate_to: localhost
+  tags: win_software_inventory
+
+# ---------------------------------------------------------------------------
+# Commit and push once per play run — every host's write above has already
+# completed by the time these run_once tasks execute (Ansible runs a play's
+# tasks in lockstep across the batch). See DESIGN.md, "Why run_once is safe".
+# git add/commit have no ansible.builtin/community.general module
+# equivalent; command is used deliberately here, matching the convention
+# used for control-node git push tasks elsewhere in this repo
+# (realtime.dns_servers).
+# ---------------------------------------------------------------------------
+
+- name: Stage inventory changes for commit
+  ansible.builtin.command: "git add -A"
+  args:
+    chdir: "{{ win_software_inventory_output_dir }}"
+  delegate_to: localhost
+  run_once: true
+  when: win_software_inventory_git_commit | bool
+  changed_when: false
+  tags: win_software_inventory
+  # noqa: command-instead-of-module
+
+- name: Check whether there are staged changes to commit
+  ansible.builtin.command: "git diff --cached --quiet"
+  args:
+    chdir: "{{ win_software_inventory_output_dir }}"
+  delegate_to: localhost
+  run_once: true
+  register: win_software_inventory_git_diff
+  when: win_software_inventory_git_commit | bool
+  failed_when: win_software_inventory_git_diff.rc not in [0, 1]
+  changed_when: false
+  tags: win_software_inventory
+  # noqa: command-instead-of-module
+
+- name: Commit inventory changes
+  ansible.builtin.command: "git commit -m {{ win_software_inventory_git_commit_message | quote }}"
+  args:
+    chdir: "{{ win_software_inventory_output_dir }}"
+  delegate_to: localhost
+  run_once: true
+  when:
+    - win_software_inventory_git_commit | bool
+    - win_software_inventory_git_diff.rc == 1
+  changed_when: true
+  tags: win_software_inventory
+  # noqa: command-instead-of-module
+
+- name: Push inventory changes
+  ansible.builtin.command: "git push origin {{ win_software_inventory_git_branch }}"
+  args:
+    chdir: "{{ win_software_inventory_output_dir }}"
+  delegate_to: localhost
+  run_once: true
+  when:
+    - win_software_inventory_git_commit | bool
+    - win_software_inventory_git_diff.rc == 1
+  changed_when: true
+  tags: win_software_inventory
+  # noqa: command-instead-of-module

@@ -1,0 +1,40 @@
+---
+- name: Assert minimum Ansible version
+  ansible.builtin.assert:
+    that:
+      - ansible_version.full is version('2.20', '>=')
+    fail_msg: >-
+      win_software_inventory requires Ansible >= 2.20.
+      Running {{ ansible_version.full }}.
+    quiet: true
+
+- name: Assert target host is Windows
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] == 'Windows'
+    fail_msg: >-
+      win_software_inventory targets Windows hosts only.
+      Host {{ inventory_hostname }} reports os_family={{ ansible_facts['os_family'] }}.
+    quiet: true
+
+- name: Assert win_software_inventory_output_dir is set and non-empty
+  ansible.builtin.assert:
+    that:
+      - win_software_inventory_output_dir is defined
+      - win_software_inventory_output_dir | length > 0
+    fail_msg: >-
+      win_software_inventory_output_dir must be a non-empty string.
+      Current value: {{ win_software_inventory_output_dir | default('(undefined)') }}
+    quiet: true
+
+- name: Assert win_software_inventory_git_repo is set when git_commit is enabled
+  ansible.builtin.assert:
+    that:
+      - win_software_inventory_git_repo is defined
+      - win_software_inventory_git_repo | length > 0
+    fail_msg: >-
+      win_software_inventory_git_commit is true but win_software_inventory_git_repo
+      is empty. Set it to the git URL to clone/pull/push, or set
+      win_software_inventory_git_commit to false to skip all git operations.
+    quiet: true
+  when: win_software_inventory_git_commit | bool

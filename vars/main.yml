@@ -1,0 +1,22 @@
+---
+# Internal role variables — not user-overridable in the normal sense.
+# These are implementation details; change them only if the registry query
+# behaviour needs to change.
+
+# PowerShell output encoding for win_shell commands.
+win_software_inventory_ps_encoding: "UTF8"
+
+# Registry Uninstall key paths queried for installed-software entries.
+# Deliberately not Win32_Product (WMI) — that enumerates via MSI
+# reconfiguration as a side effect and is slow/risky. See DESIGN.md.
+win_software_inventory_registry_paths:
+  - 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+  - 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+  - 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+
+# Chocolatey's package library directory. When present on the target host,
+# used as an install_date fallback for entries with no registry InstallDate
+# (see tasks/main.yml and DESIGN.md — "Install date fallback"). Chocolatey
+# doesn't record an explicit install date, so each package's .nupkg file
+# LastWriteTime is used as a proxy for "when this version was installed."
+win_software_inventory_chocolatey_lib_path: 'C:\ProgramData\chocolatey\lib'

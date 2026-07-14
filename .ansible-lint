@@ -1,0 +1,53 @@
+---
+exclude_paths:
+  - ~/.ansible
+  - .gitlab-ci.yml
+  - .pre-commit-config.yaml
+  - .cache/
+  - .github/
+  - .ansible/
+
+skip_list:
+  - git-latest
+  - var-naming
+  - package-latest
+  # args[module] is a false positive whenever mock_modules is used — the basic.py
+  # substitute that ansible-lint swaps in does not know the real module parameters.
+  - args[module]
+
+enable_list:
+  - fqcn[builtins]
+  - comparison-to-empty-string
+  - no-log[password]
+  - no-same-owner
+  - meta[incorrect]
+  - meta[no-info]
+  - meta[no-tags]
+  - meta[video-links]
+  - yaml[no-tabs]
+  - risky-file-permissions
+  - risky-shell-pipe
+
+warn_list:
+  - git-latest
+  - experimental
+
+use_default_rules: true
+
+# Enable checking of loop variable prefixes in roles
+loop_var_prefix: "{role_name}_"
+
+mock_roles:
+  # molecule/default/prepare.yml dependency — install via:
+  #   ansible-galaxy role install -r molecule/default/requirements.yml
+  - jborean93.win_openssh
+
+mock_modules:
+  - community.docker.docker_compose_v2
+  - community.docker.docker_container
+  - community.docker.docker_network
+  - chocolatey.chocolatey.win_chocolatey
+  - chocolatey.chocolatey.win_chocolatey_feature
+  - chocolatey.chocolatey.win_chocolatey_source
+  - ansible.windows.win_service
+  - ansible.windows.win_file

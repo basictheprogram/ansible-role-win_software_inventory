@@ -1,0 +1,82 @@
+---
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=600"]
+      - id: detect-private-key
+      - id: check-shebang-scripts-are-executable
+      - id: file-contents-sorter
+        files: requirements.txt|\.gitignore|\.dockerignore
+
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        files: \.(yaml|yml)$
+        types: [file, yaml]
+        entry: yamllint --strict -f parsable
+
+  - repo: https://github.com/zricethezav/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.16
+    hooks:
+      - id: ruff
+        name: Ruff check
+        description: "Run 'ruff check' for extremely fast Python linting"
+        args: [--fix]
+
+      - id: ruff-format
+        name: Ruff format
+        description: "Run 'ruff format' for extremely fast Python formatting"
+
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.14.0
+    hooks:
+      - id: hadolint
+        name: Lint Dockerfiles
+        description: Runs hadolint to lint Dockerfiles
+        language: system
+        types: ["dockerfile"]
+        entry: hadolint
+
+  - repo: local
+    hooks:
+      - id: ansible-lint
+        name: Ansible Lint
+        language: system
+        entry: ansible-lint
+        files: \.(yaml|yml)$
+        pass_filenames: false
+
+  - repo: https://github.com/jumanjihouse/pre-commit-hooks
+    rev: 3.0.0
+    hooks:
+      # - id: bundler-audit
+      # - id: check-mailmap
+      # - id: fasterer
+      # - id: forbid-binary
+      # - id: forbid-space-in-indent
+      # - id: git-check  # Configure in .gitattributes
+      # - id: git-dirty  # Configure in .gitignore
+      # - id: markdownlint # Configure in .mdlrc
+      # - id: reek
+      # - id: require-ascii
+      # - id: rubocop
+      # - id: script-must-have-extension
+      # - id: script-must-not-have-extension
+      - id: shellcheck
+      - id: shfmt
+
+ci:
+  autoupdate_schedule: weekly

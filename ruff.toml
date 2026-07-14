@@ -1,0 +1,53 @@
+line-length = 120
+indent-width = 4
+target-version = "py314"
+
+# Never lint third-party or generated paths.
+# .ansible/ contains Galaxy-installed collections and roles — not our code.
+exclude = [
+    ".ansible/",
+    ".cache/",
+    ".git/",
+    ".venv/",
+    "venv/",
+]
+
+[lint]
+select = ["ALL"]
+ignore = [
+    "COM812",
+    "COM819",
+    "D100",
+    "D203",
+    "D213",
+    "D300",
+    "E111",
+    "E114",
+    "E117",
+    "ERA001",
+    "ISC001",
+    "ISC002",
+    "PLC0415",
+    "Q000",
+    "Q001",
+    "Q002",
+    "Q003",
+    "W191",
+]
+fixable = ["ALL"]
+unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[lint.per-file-ignores]
+# S101  - assert is the correct pattern for pytest
+# INP001 - no __init__.py needed for test discovery
+# D103  - test function names are self-documenting
+# ANN401 - Any is accurate for yaml.safe_load return values
+# PLR2004 - octal/numeric literals in assertions are intentional
+"**/tests/**" = ["INP001", "S101", "D103", "ANN401", "PLR2004"]
